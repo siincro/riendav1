@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import { Timer, UserPlus } from '@lucide/vue';
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import InputError from '@/components/InputError.vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -41,19 +41,52 @@ const form = useForm({
     competition_group_id: '' as string | number,
 });
 
+const participantSearch = ref('');
+const participantDropdownOpen = ref(false);
+
+const filteredParticipants = computed(() => {
+    const query = participantSearch.value.toLowerCase().trim();
+
+    if (query === '') {
+        return props.availableParticipants;
+    }
+
+    return props.availableParticipants.filter((p) =>
+        p.full_name.toLowerCase().includes(query),
+    );
+});
+
+const selectedParticipant = computed(() =>
+    props.availableParticipants.find(
+        (p) => p.public_id === form.participant_public_id,
+    ),
+);
+
+function selectParticipant(publicId: string): void {
+    form.participant_public_id = publicId;
+    participantSearch.value = '';
+    participantDropdownOpen.value = false;
+}
+
 /** Caballos del jinete seleccionado, para no ofrecer los de otro. */
 const horsesForSelection = computed(
-    () =>
-        props.availableParticipants.find(
-            (participant) =>
-                participant.public_id === form.participant_public_id,
-        )?.horses ?? [],
+    () => selectedParticipant.value?.horses ?? [],
+);
+
+watch(
+    () => form.participant_public_id,
+    () => {
+        form.horse_public_id = '';
+    },
 );
 
 function submit(): void {
     form.post(`${basePath}/registrations`, {
         preserveScroll: true,
-        onSuccess: () => form.reset(),
+        onSuccess: () => {
+            form.reset();
+            participantSearch.value = '';
+        },
     });
 }
 </script>
@@ -103,23 +136,60 @@ function submit(): void {
                     <form v-else class="grid gap-4" @submit.prevent="submit">
                         <div class="grid gap-2">
                             <Label for="participant">Vaquero</Label>
-                            <select
-                                id="participant"
-                                v-model="form.participant_public_id"
-                                required
-                                class="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs"
-                            >
-                                <option value="" disabled>
-                                    Seleccione un vaquero
-                                </option>
-                                <option
-                                    v-for="participant in availableParticipants"
-                                    :key="participant.public_id"
-                                    :value="participant.public_id"
+                            <div class="relative">
+                                <input
+                                    id="participant"
+                                    type="text"
+                                    role="combobox"
+                                    autocomplete="off"
+                                    aria-expanded="false"
+                                    :placeholder="
+                                        selectedParticipant
+                                            ? selectedParticipant.full_name
+                                            : 'Busque por nombre…'
+                                    "
+                                    :value="participantSearch"
+                                    @input="
+                                        participantSearch =
+                                            ($event.target as HTMLInputElement)
+                                                .value;
+                                        participantDropdownOpen = true;
+                                    "
+                                    @focus="participantDropdownOpen = true"
+                                    class="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                />
+                                <div
+                                    v-if="participantDropdownOpen"
+                                    class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border bg-popover shadow-md"
                                 >
-                                    {{ participant.full_name }}
-                                </option>
-                            </select>
+                                    <div
+                                        v-if="
+                                            filteredParticipants.length === 0
+                                        "
+                                        class="p-3 text-sm text-muted-foreground"
+                                    >
+                                        Sin resultados
+                                    </div>
+                                    <button
+                                        v-for="participant in filteredParticipants"
+                                        :key="participant.public_id"
+                                        type="button"
+                                        class="flex w-full cursor-pointer items-center px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                                        :class="{
+                                            'bg-accent text-accent-foreground':
+                                                participant.public_id ===
+                                                form.participant_public_id,
+                                        }"
+                                        @click="
+                                            selectParticipant(
+                                                participant.public_id,
+                                            )
+                                        "
+                                    >
+                                        {{ participant.full_name }}
+                                    </button>
+                                </div>
+                            </div>
                             <InputError
                                 :message="form.errors.participant_public_id"
                             />
